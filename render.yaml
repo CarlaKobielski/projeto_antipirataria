@@ -96,7 +96,6 @@ services:
   - type: web
     name: backoffice-web
     env: static
-    plan: free
     buildCommand: pnpm install && pnpm build --filter=backoffice-web...
     staticPublishPath: apps/backoffice-web/dist
     envVars:
@@ -109,7 +108,6 @@ services:
   - type: web
     name: client-portal
     env: static
-    plan: free
     buildCommand: pnpm install && pnpm build --filter=client-portal...
     staticPublishPath: apps/client-portal/dist
     envVars:
