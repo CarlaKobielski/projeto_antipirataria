@@ -1,7 +1,14 @@
 import axios from 'axios';
 import { useAuthStore } from '../store/auth';
 
-const api = axios.create({ baseURL: '/api/v1', headers: { 'Content-Type': 'application/json' } });
+// Construct base URL: if VITE_API_URL is just a host, prepend https://
+const baseURL = import.meta.env.VITE_API_URL
+    ? (import.meta.env.VITE_API_URL.startsWith('http')
+        ? import.meta.env.VITE_API_URL
+        : `https://${import.meta.env.VITE_API_URL}`)
+    : '/api/v1';
+
+const api = axios.create({ baseURL: baseURL.endsWith('/api/v1') ? baseURL : `${baseURL}/api/v1`, headers: { 'Content-Type': 'application/json' } });
 
 api.interceptors.request.use((config) => {
     const { accessToken } = useAuthStore.getState();

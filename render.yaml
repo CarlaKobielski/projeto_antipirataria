@@ -32,8 +32,7 @@ services:
     buildCommand: pnpm install && pnpm build --filter=auth-service...
     startCommand: node apps/auth-service/dist/main.js
     envVars:
-      - key: DATABASE_URL
-        fromGroup: shared-database
+      - fromGroup: shared-database
       - key: JWT_SECRET
         generateValue: true
 
@@ -45,16 +44,9 @@ services:
     buildCommand: pnpm install && pnpm build --filter=crawler-service...
     startCommand: node apps/crawler-service/dist/main.js
     envVars:
-      - key: DATABASE_URL
-        fromGroup: shared-database
-      - key: REDIS_URL
-        fromGroup: shared-redis
-      - key: AWS_S3_ENDPOINT
-        fromGroup: shared-storage # Supabase Storage URL
-      - key: AWS_ACCESS_KEY_ID
-        fromGroup: shared-storage
-      - key: AWS_SECRET_ACCESS_KEY
-        fromGroup: shared-storage
+      - fromGroup: shared-database
+      - fromGroup: shared-redis
+      - fromGroup: shared-storage
 
   # Detection Service
   - type: pserv
@@ -64,10 +56,8 @@ services:
     buildCommand: pnpm install && pnpm build --filter=detection-service...
     startCommand: node apps/detection-service/dist/main.js
     envVars:
-      - key: DATABASE_URL
-        fromGroup: shared-database
-      - key: REDIS_URL
-        fromGroup: shared-redis
+      - fromGroup: shared-database
+      - fromGroup: shared-redis
 
   # Case Service
   - type: pserv
@@ -77,8 +67,7 @@ services:
     buildCommand: pnpm install && pnpm build --filter=case-service...
     startCommand: node apps/case-service/dist/main.js
     envVars:
-      - key: DATABASE_URL
-        fromGroup: shared-database
+      - fromGroup: shared-database
 
   # Takedown Service
   - type: pserv
@@ -88,10 +77,8 @@ services:
     buildCommand: pnpm install && pnpm build --filter=takedown-service...
     startCommand: node apps/takedown-service/dist/main.js
     envVars:
-      - key: DATABASE_URL
-        fromGroup: shared-database
-      - key: REDIS_URL
-        fromGroup: shared-redis
+      - fromGroup: shared-database
+      - fromGroup: shared-redis
 
   # Billing Service
   - type: pserv
@@ -101,8 +88,7 @@ services:
     buildCommand: pnpm install && pnpm build --filter=billing-service...
     startCommand: node apps/billing-service/dist/main.js
     envVars:
-      - key: DATABASE_URL
-        fromGroup: shared-database
+      - fromGroup: shared-database
       - key: STRIPE_SECRET_KEY
         sync: false # User must provide in dashboard
 
@@ -118,7 +104,7 @@ services:
         fromService:
           type: web
           name: api-gateway
-          property: url
+          property: host
 
   - type: web
     name: client-portal
@@ -131,7 +117,7 @@ services:
         fromService:
           type: web
           name: api-gateway
-          property: url
+          property: host
 
 # Render doesn't host databases in free tier nicely for production persistence,
 # so we assume Supabase external connection
@@ -139,11 +125,11 @@ envVarGroups:
   - name: shared-database
     envVars:
       - key: DATABASE_URL
-        sync: false # To be filled with Supabase Transaction Pooler URL
+        sync: false
   - name: shared-redis
     envVars:
       - key: REDIS_URL
-        sync: false # To be filled with Upstash or Render Redis URL
+        sync: false
   - name: shared-storage
     envVars:
       - key: AWS_S3_ENDPOINT
