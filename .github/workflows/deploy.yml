@@ -1,0 +1,185 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+    tags:
+      - 'v*'
+
+env:
+  NODE_VERSION: '20'
+  PNPM_VERSION: '8'
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ${{ github.repository }}
+
+jobs:
+  build-and-push:
+    name: Build and Push Docker Images
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        service:
+          - api-gateway
+          - auth-service
+          - crawler-service
+          - detection-service
+          - case-service
+          - takedown-service
+          - backoffice-web
+          - client-portal
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/${{ matrix.service }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: apps/${{ matrix.service }}/Dockerfile
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            SERVICE_NAME=${{ matrix.service }}
+
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    if: github.ref == 'refs/heads/main'
+    environment: staging
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'v1.28.0'
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Update kubeconfig
+        run: aws eks update-kubeconfig --name protecliter-staging --region ${{ secrets.AWS_REGION }}
+
+      - name: Deploy to staging
+        run: |
+          kubectl set image deployment/api-gateway \
+            api-gateway=${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/api-gateway:sha-${{ github.sha }} \
+            -n protecliter-staging
+          kubectl set image deployment/auth-service \
+            auth-service=${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/auth-service:sha-${{ github.sha }} \
+            -n protecliter-staging
+          kubectl set image deployment/crawler-service \
+            crawler-service=${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/crawler-service:sha-${{ github.sha }} \
+            -n protecliter-staging
+          kubectl set image deployment/detection-service \
+            detection-service=${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/detection-service:sha-${{ github.sha }} \
+            -n protecliter-staging
+          kubectl set image deployment/case-service \
+            case-service=${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/case-service:sha-${{ github.sha }} \
+            -n protecliter-staging
+          kubectl set image deployment/takedown-service \
+            takedown-service=${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/takedown-service:sha-${{ github.sha }} \
+            -n protecliter-staging
+
+      - name: Verify deployment
+        run: |
+          kubectl rollout status deployment/api-gateway -n protecliter-staging --timeout=300s
+          kubectl rollout status deployment/auth-service -n protecliter-staging --timeout=300s
+
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    if: startsWith(github.ref, 'refs/tags/v')
+    environment: production
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'v1.28.0'
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Update kubeconfig
+        run: aws eks update-kubeconfig --name protecliter-production --region ${{ secrets.AWS_REGION }}
+
+      - name: Deploy to production
+        run: |
+          TAG=${GITHUB_REF#refs/tags/}
+          kubectl set image deployment/api-gateway \
+            api-gateway=${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/api-gateway:$TAG \
+            -n protecliter-production
+          kubectl set image deployment/auth-service \
+            auth-service=${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/auth-service:$TAG \
+            -n protecliter-production
+          kubectl set image deployment/crawler-service \
+            crawler-service=${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/crawler-service:$TAG \
+            -n protecliter-production
+          kubectl set image deployment/detection-service \
+            detection-service=${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/detection-service:$TAG \
+            -n protecliter-production
+          kubectl set image deployment/case-service \
+            case-service=${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/case-service:$TAG \
+            -n protecliter-production
+          kubectl set image deployment/takedown-service \
+            takedown-service=${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/takedown-service:$TAG \
+            -n protecliter-production
+
+      - name: Verify deployment
+        run: |
+          kubectl rollout status deployment/api-gateway -n protecliter-production --timeout=300s
+          kubectl rollout status deployment/auth-service -n protecliter-production --timeout=300s
+
+      - name: Notify on success
+        if: success()
+        uses: slackapi/slack-github-action@v1.24.0
+        with:
+          payload: |
+            {
+              "text": "🚀 ProtecLiter ${{ github.ref_name }} deployed to production successfully!"
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

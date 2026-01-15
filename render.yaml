@@ -1,0 +1,156 @@
+services:
+  # API Gateway
+  - type: web
+    name: api-gateway
+    env: node
+    plan: free
+    buildCommand: pnpm install && pnpm build --filter=api-gateway...
+    startCommand: node apps/api-gateway/dist/main.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3000
+      - key: AUTH_SERVICE_URL
+        value: http://auth-service:3000
+      - key: CRAWLER_SERVICE_URL
+        value: http://crawler-service:3000
+      - key: DETECTION_SERVICE_URL
+        value: http://detection-service:3000
+      - key: CASE_SERVICE_URL
+        value: http://case-service:3000
+      - key: TAKEDOWN_SERVICE_URL
+        value: http://takedown-service:3000
+      - key: BILLING_SERVICE_URL
+        value: http://billing-service:3000
+
+  # Auth Service
+  - type: private-service
+    name: auth-service
+    env: node
+    plan: free
+    buildCommand: pnpm install && pnpm build --filter=auth-service...
+    startCommand: node apps/auth-service/dist/main.js
+    envVars:
+      - key: DATABASE_URL
+        fromGroup: shared-database
+      - key: JWT_SECRET
+        generateValue: true
+
+  # Crawler Service
+  - type: private-service
+    name: crawler-service
+    env: node
+    plan: free
+    buildCommand: pnpm install && pnpm build --filter=crawler-service...
+    startCommand: node apps/crawler-service/dist/main.js
+    envVars:
+      - key: DATABASE_URL
+        fromGroup: shared-database
+      - key: REDIS_URL
+        fromGroup: shared-redis
+      - key: AWS_S3_ENDPOINT
+        fromGroup: shared-storage # Supabase Storage URL
+      - key: AWS_ACCESS_KEY_ID
+        fromGroup: shared-storage
+      - key: AWS_SECRET_ACCESS_KEY
+        fromGroup: shared-storage
+
+  # Detection Service
+  - type: private-service
+    name: detection-service
+    env: node
+    plan: free
+    buildCommand: pnpm install && pnpm build --filter=detection-service...
+    startCommand: node apps/detection-service/dist/main.js
+    envVars:
+      - key: DATABASE_URL
+        fromGroup: shared-database
+      - key: REDIS_URL
+        fromGroup: shared-redis
+
+  # Case Service
+  - type: private-service
+    name: case-service
+    env: node
+    plan: free
+    buildCommand: pnpm install && pnpm build --filter=case-service...
+    startCommand: node apps/case-service/dist/main.js
+    envVars:
+      - key: DATABASE_URL
+        fromGroup: shared-database
+
+  # Takedown Service
+  - type: private-service
+    name: takedown-service
+    env: node
+    plan: free
+    buildCommand: pnpm install && pnpm build --filter=takedown-service...
+    startCommand: node apps/takedown-service/dist/main.js
+    envVars:
+      - key: DATABASE_URL
+        fromGroup: shared-database
+      - key: REDIS_URL
+        fromGroup: shared-redis
+
+  # Billing Service
+  - type: private-service
+    name: billing-service
+    env: node
+    plan: free
+    buildCommand: pnpm install && pnpm build --filter=billing-service...
+    startCommand: node apps/billing-service/dist/main.js
+    envVars:
+      - key: DATABASE_URL
+        fromGroup: shared-database
+      - key: STRIPE_SECRET_KEY
+        sync: false # User must provide in dashboard
+
+  # Frontends (Static Sites)
+  - type: static
+    name: backoffice-web
+    env: static
+    plan: free
+    buildCommand: pnpm install && pnpm build --filter=backoffice-web...
+    staticPublishPath: apps/backoffice-web/dist
+    envVars:
+      - key: VITE_API_URL
+        fromService:
+          type: web
+          name: api-gateway
+          property: url
+
+  - type: static
+    name: client-portal
+    env: static
+    plan: free
+    buildCommand: pnpm install && pnpm build --filter=client-portal...
+    staticPublishPath: apps/client-portal/dist
+    envVars:
+      - key: VITE_API_URL
+        fromService:
+          type: web
+          name: api-gateway
+          property: url
+
+# Render doesn't host databases in free tier nicely for production persistence,
+# so we assume Supabase external connection
+envVarGroups:
+  - name: shared-database
+    envVars:
+      - key: DATABASE_URL
+        sync: false # To be filled with Supabase Transaction Pooler URL
+  - name: shared-redis
+    envVars:
+      - key: REDIS_URL
+        sync: false # To be filled with Upstash or Render Redis URL
+  - name: shared-storage
+    envVars:
+      - key: AWS_S3_ENDPOINT
+        sync: false
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+      - key: AWS_S3_BUCKET
+        value: evidence

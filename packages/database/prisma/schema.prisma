@@ -1,0 +1,485 @@
+// Prisma Schema for ProtecLiter SaaS
+// Copyright (c) 2026 - All rights reserved
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// ENUMS
+// ============================================
+
+enum UserRole {
+  SUPER_ADMIN
+  ADMIN
+  ANALYST
+  CLIENT
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+  PENDING_VERIFICATION
+}
+
+enum Plan {
+  STARTER
+  PROFESSIONAL
+  ENTERPRISE
+}
+
+enum JobStatus {
+  ACTIVE
+  PAUSED
+  COMPLETED
+  FAILED
+}
+
+enum DetectionStatus {
+  NEW
+  REVIEWING
+  VALIDATED
+  REJECTED
+  ARCHIVED
+}
+
+enum CaseStatus {
+  NEW
+  VALIDATED
+  REMOVAL_REQUESTED
+  REMOVED
+  REJECTED
+  CLOSED
+}
+
+enum TakedownStatus {
+  PENDING
+  SENT
+  ACKNOWLEDGED
+  REMOVED
+  REJECTED
+  FAILED
+}
+
+enum TakedownPlatform {
+  GOOGLE_SEARCH
+  GOOGLE_DRIVE
+  SCRIBD
+  TELEGRAM
+  GENERIC_DMCA
+  OTHER
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  TRIALING
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  LOGIN
+  LOGOUT
+  TAKEDOWN_SENT
+  CASE_STATUS_CHANGE
+}
+
+// ============================================
+// AUTHENTICATION & TENANTS
+// ============================================
+
+model User {
+  id            String      @id @default(uuid())
+  email         String      @unique
+  passwordHash  String
+  name          String
+  phone         String?
+  role          UserRole    @default(CLIENT)
+  status        UserStatus  @default(PENDING_VERIFICATION)
+  mfaEnabled    Boolean     @default(false)
+  mfaSecret     String?
+  emailVerified Boolean     @default(false)
+  lastLoginAt   DateTime?
+  
+  tenantId      String?
+  tenant        Tenant?     @relation(fields: [tenantId], references: [id])
+  
+  // Relations
+  assignedCases Case[]      @relation("AssignedAnalyst")
+  auditLogs     AuditLog[]
+  feedbacks     Feedback[]
+  
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@index([email])
+  @@index([tenantId])
+}
+
+model Tenant {
+  id            String   @id @default(uuid())
+  name          String
+  cnpj          String?  @unique
+  email         String
+  phone         String?
+  plan          Plan     @default(STARTER)
+  billingInfo   Json?
+  settings      Json?    // Tenant-specific configurations
+  
+  // Relations
+  users         User[]
+  works         Work[]
+  monitoringJobs MonitoringJob[]
+  subscription  Subscription?
+  
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([cnpj])
+}
+
+model RefreshToken {
+  id          String   @id @default(uuid())
+  token       String   @unique
+  userId      String
+  expiresAt   DateTime
+  revokedAt   DateTime?
+  createdAt   DateTime @default(now())
+
+  @@index([token])
+  @@index([userId])
+}
+
+// ============================================
+// WORKS & MONITORING
+// ============================================
+
+model Work {
+  id            String   @id @default(uuid())
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id])
+  
+  title         String
+  author        String?
+  isbn          String?
+  description   String?
+  excerpt       String?  @db.Text // User provided book excerpt
+  keywords      String[] // Search keywords
+  
+  // Evidence files stored in S3
+  proofFiles    Json?    // Array of { path: string, type: string, uploadedAt: DateTime }
+  
+  // Relations
+  monitoringJobs MonitoringJob[]
+  detections    Detection[]
+  
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([tenantId])
+  @@index([isbn])
+  @@index([title])
+}
+
+model MonitoringJob {
+  id          String    @id @default(uuid())
+  tenantId    String
+  workId      String
+  work        Work      @relation(fields: [workId], references: [id])
+  
+  queries     String[]  // Google dorks, keywords, URLs to monitor
+  schedule    String    // Cron expression (e.g., "0 */6 * * *" for every 6 hours)
+  status      JobStatus @default(ACTIVE)
+  
+  lastRunAt   DateTime?
+  nextRunAt   DateTime?
+  runCount    Int       @default(0)
+  
+  // Relations
+  crawlResults CrawlResult[]
+  tenant       Tenant   @relation(fields: [tenantId], references: [id])
+  
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([tenantId])
+  @@index([workId])
+  @@index([status])
+}
+
+model CrawlResult {
+  id          String   @id @default(uuid())
+  jobId       String
+  job         MonitoringJob @relation(fields: [jobId], references: [id])
+  
+  url         String
+  domain      String
+  statusCode  Int
+  contentType String?
+  headers     Json?
+  
+  // Storage paths in S3
+  rawContentPath  String?   // HTML/content
+  screenshotPath  String?   // Screenshot evidence
+  
+  processedAt DateTime?
+  
+  // Relations
+  detection   Detection?
+  
+  createdAt   DateTime @default(now())
+
+  @@index([jobId])
+  @@index([url])
+  @@index([domain])
+}
+
+// ============================================
+// DETECTION & EVIDENCE
+// ============================================
+
+model Evidence {
+  id            String   @id @default(uuid())
+  
+  // Storage
+  storagePath   String   // S3 path
+  contentType   String   // MIME type
+  fileSize      Int      // bytes
+  
+  // Hashes for integrity
+  sha256        String
+  ssdeep        String?  // Fuzzy hash
+  simhash       String?  // Text similarity hash
+  
+  // Extracted content
+  ocrText       String?  // OCR extracted text (large text field)
+  metadata      Json?    // File metadata, headers, etc.
+  
+  // WORM compliance
+  isLocked      Boolean  @default(false)
+  lockedAt      DateTime?
+  
+  // Relations
+  detection     Detection?
+  
+  createdAt     DateTime @default(now())
+
+  @@index([sha256])
+  @@index([ssdeep])
+}
+
+model Detection {
+  id            String   @id @default(uuid())
+  jobId         String?
+  crawlResultId String?  @unique
+  crawlResult   CrawlResult? @relation(fields: [crawlResultId], references: [id])
+  workId        String
+  work          Work     @relation(fields: [workId], references: [id])
+  
+  url           String
+  domain        String
+  
+  // Scoring
+  score         Float    // 0.0 - 1.0
+  confidence    String   // LOW, MEDIUM, HIGH
+  reasons       String[] // Explainability - why it was flagged
+  
+  // Fingerprint matching
+  fingerprintMatch Float? // Similarity score
+  
+  evidenceId    String?  @unique
+  evidence      Evidence? @relation(fields: [evidenceId], references: [id])
+  
+  status        DetectionStatus @default(NEW)
+  reviewedAt    DateTime?
+  
+  // Relations
+  case          Case?
+  feedbacks     Feedback[]
+  
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([workId])
+  @@index([status])
+  @@index([score])
+  @@index([url])
+  @@index([domain])
+}
+
+model Feedback {
+  id          String   @id @default(uuid())
+  detectionId String
+  detection   Detection @relation(fields: [detectionId], references: [id])
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  
+  label       String   // "true_positive", "false_positive", "uncertain"
+  comment     String?
+  
+  createdAt   DateTime @default(now())
+
+  @@index([detectionId])
+  @@index([label])
+}
+
+// ============================================
+// CASE MANAGEMENT & TAKEDOWN
+// ============================================
+
+model Case {
+  id            String     @id @default(uuid())
+  detectionId   String     @unique
+  detection     Detection  @relation(fields: [detectionId], references: [id])
+  
+  analystId     String?
+  analyst       User?      @relation("AssignedAnalyst", fields: [analystId], references: [id])
+  
+  status        CaseStatus @default(NEW)
+  priority      Int        @default(0) // Higher = more urgent
+  
+  notes         String?
+  internalComments Json?   // Array of { userId, comment, timestamp }
+  
+  // Relations
+  takedownRequests TakedownRequest[]
+  
+  validatedAt   DateTime?
+  closedAt      DateTime?
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  @@index([status])
+  @@index([analystId])
+  @@index([priority])
+}
+
+model TakedownRequest {
+  id            String          @id @default(uuid())
+  caseId        String
+  case          Case            @relation(fields: [caseId], references: [id])
+  
+  platform      TakedownPlatform
+  templateUsed  String?         // Template identifier
+  
+  // Request details
+  requestPayload Json           // The actual request sent
+  evidenceUrls  String[]        // S3 links to evidence
+  
+  // Response tracking
+  status        TakedownStatus  @default(PENDING)
+  response      Json?           // Platform response
+  externalId    String?         // Platform's reference ID
+  
+  attempts      Int             @default(0)
+  lastAttemptAt DateTime?
+  
+  sentAt        DateTime?
+  respondedAt   DateTime?
+  
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  @@index([caseId])
+  @@index([platform])
+  @@index([status])
+}
+
+// ============================================
+// BILLING & SUBSCRIPTIONS
+// ============================================
+
+model Subscription {
+  id              String             @id @default(uuid())
+  tenantId        String             @unique
+  tenant          Tenant             @relation(fields: [tenantId], references: [id])
+  
+  stripeCustomerId    String?        @unique
+  stripeSubscriptionId String?       @unique
+  
+  plan            Plan               @default(STARTER)
+  status          SubscriptionStatus @default(TRIALING)
+  
+  // Limits based on plan
+  maxWorks        Int                @default(10)
+  maxMonthlyScans Int                @default(1000)
+  currentMonthScans Int              @default(0)
+  
+  trialEndsAt     DateTime?
+  currentPeriodStart DateTime?
+  currentPeriodEnd   DateTime?
+  canceledAt      DateTime?
+  
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  @@index([stripeCustomerId])
+}
+
+// ============================================
+// AUDIT & COMPLIANCE
+// ============================================
+
+model AuditLog {
+  id          String      @id @default(uuid())
+  userId      String?
+  user        User?       @relation(fields: [userId], references: [id])
+  
+  action      AuditAction
+  entity      String      // Table/model name
+  entityId    String      // Record ID
+  
+  oldValue    Json?       // Previous state
+  newValue    Json?       // New state
+  
+  ipAddress   String?
+  userAgent   String?
+  
+  createdAt   DateTime    @default(now())
+
+  @@index([userId])
+  @@index([entity, entityId])
+  @@index([action])
+  @@index([createdAt])
+}
+
+// ============================================
+// PUBLIC REPORTS (Denúncia)
+// ============================================
+
+model PublicReport {
+  id            String   @id @default(uuid())
+  
+  // Reporter info
+  reporterName  String
+  reporterEmail String
+  
+  // Report details
+  workTitle     String
+  workAuthor    String?
+  infringingUrl String
+  description   String?
+  attachmentPath String?  // S3 path
+  
+  // Processing
+  status        String   @default("pending") // pending, triaged, converted, rejected
+  convertedToCaseId String?
+  
+  // Anti-spam
+  ipAddress     String
+  
+  createdAt     DateTime @default(now())
+  processedAt   DateTime?
+
+  @@index([status])
+  @@index([reporterEmail])
+}

@@ -1,0 +1,123 @@
+import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { Shield, AlertCircle } from 'lucide-react';
+import { authApi } from '../lib/api';
+import { useAuthStore } from '../store/auth';
+
+export function Login() {
+    const [email, setEmail] = useState('');
+    const [password, setPassword] = useState('');
+    const [error, setError] = useState('');
+    const [loading, setLoading] = useState(false);
+    const { login } = useAuthStore();
+    const navigate = useNavigate();
+
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setError('');
+        setLoading(true);
+
+        try {
+            const { data } = await authApi.login(email, password);
+
+            if (data.success) {
+                login(
+                    data.data.user,
+                    data.data.tokens.accessToken,
+                    data.data.tokens.refreshToken
+                );
+                navigate('/');
+            }
+        } catch (err: any) {
+            setError(err.response?.data?.error?.message || 'Erro ao fazer login');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    return (
+        <div style={{
+            minHeight: '100vh',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            background: 'linear-gradient(135deg, var(--color-bg-primary) 0%, var(--color-bg-secondary) 100%)',
+        }}>
+            <div className="card" style={{ width: '100%', maxWidth: '400px' }}>
+                <div style={{ textAlign: 'center', marginBottom: 'var(--spacing-8)' }}>
+                    <div style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        width: '64px',
+                        height: '64px',
+                        borderRadius: 'var(--radius-xl)',
+                        background: 'var(--color-accent-light)',
+                        color: 'var(--color-accent)',
+                        marginBottom: 'var(--spacing-4)',
+                    }}>
+                        <Shield size={32} />
+                    </div>
+                    <h1 style={{ fontSize: 'var(--font-size-2xl)', fontWeight: 700 }}>
+                        ProtecLiter
+                    </h1>
+                    <p style={{ color: 'var(--color-text-secondary)', marginTop: 'var(--spacing-2)' }}>
+                        Backoffice de Análise
+                    </p>
+                </div>
+
+                {error && (
+                    <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 'var(--spacing-2)',
+                        padding: 'var(--spacing-3)',
+                        background: 'var(--color-danger-light)',
+                        borderRadius: 'var(--radius-md)',
+                        color: 'var(--color-danger)',
+                        marginBottom: 'var(--spacing-4)',
+                        fontSize: 'var(--font-size-sm)',
+                    }}>
+                        <AlertCircle size={16} />
+                        {error}
+                    </div>
+                )}
+
+                <form onSubmit={handleSubmit}>
+                    <div className="form-group">
+                        <label className="form-label">Email</label>
+                        <input
+                            type="email"
+                            className="form-input"
+                            value={email}
+                            onChange={(e) => setEmail(e.target.value)}
+                            placeholder="seu@email.com"
+                            required
+                        />
+                    </div>
+
+                    <div className="form-group">
+                        <label className="form-label">Senha</label>
+                        <input
+                            type="password"
+                            className="form-input"
+                            value={password}
+                            onChange={(e) => setPassword(e.target.value)}
+                            placeholder="••••••••"
+                            required
+                        />
+                    </div>
+
+                    <button
+                        type="submit"
+                        className="btn btn-primary"
+                        disabled={loading}
+                        style={{ width: '100%', marginTop: 'var(--spacing-4)' }}
+                    >
+                        {loading ? 'Entrando...' : 'Entrar'}
+                    </button>
+                </form>
+            </div>
+        </div>
+    );
+}

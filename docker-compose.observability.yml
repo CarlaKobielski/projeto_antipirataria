@@ -1,0 +1,164 @@
+# Docker Compose for Observability Stack
+# Run with: docker-compose -f docker-compose.observability.yml up -d
+
+version: '3.8'
+
+services:
+  # Prometheus - Metrics collection
+  prometheus:
+    image: prom/prometheus:v2.48.0
+    container_name: protecliter-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.enable-lifecycle'
+    restart: unless-stopped
+    networks:
+      - protecliter-network
+
+  # Grafana - Visualization
+  grafana:
+    image: grafana/grafana:10.2.2
+    container_name: protecliter-grafana
+    ports:
+      - "3100:3000"
+    volumes:
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana-data:/var/lib/grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=protecliter_admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_SERVER_ROOT_URL=http://localhost:3100
+    restart: unless-stopped
+    networks:
+      - protecliter-network
+    depends_on:
+      - prometheus
+
+  # Node Exporter - Host metrics
+  node-exporter:
+    image: prom/node-exporter:v1.7.0
+    container_name: protecliter-node-exporter
+    ports:
+      - "9100:9100"
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--path.rootfs=/rootfs'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    restart: unless-stopped
+    networks:
+      - protecliter-network
+
+  # Redis Exporter - Redis metrics
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.55.0
+    container_name: protecliter-redis-exporter
+    ports:
+      - "9121:9121"
+    environment:
+      - REDIS_ADDR=redis://redis:6379
+    restart: unless-stopped
+    networks:
+      - protecliter-network
+
+  # Postgres Exporter - PostgreSQL metrics
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.15.0
+    container_name: protecliter-postgres-exporter
+    ports:
+      - "9187:9187"
+    environment:
+      - DATA_SOURCE_NAME=postgresql://protecliter:protecliter_dev@postgres:5432/protecliter_dev?sslmode=disable
+    restart: unless-stopped
+    networks:
+      - protecliter-network
+
+  # Logstash - Log processing
+  logstash:
+    image: docker.elastic.co/logstash/logstash:8.11.1
+    container_name: protecliter-logstash
+    ports:
+      - "5044:5044"
+      - "9600:9600"
+    volumes:
+      - ./infra/logstash/pipeline.conf:/usr/share/logstash/pipeline/logstash.conf:ro
+    environment:
+      - ENVIRONMENT=development
+      - LS_JAVA_OPTS=-Xmx256m -Xms256m
+    restart: unless-stopped
+    networks:
+      - protecliter-network
+    depends_on:
+      - elasticsearch
+
+  # Filebeat - Log shipping
+  filebeat:
+    image: docker.elastic.co/beats/filebeat:8.11.1
+    container_name: protecliter-filebeat
+    user: root
+    volumes:
+      - ./infra/filebeat/filebeat.yml:/usr/share/filebeat/filebeat.yml:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - filebeat-data:/usr/share/filebeat/data
+    command: filebeat -e -strict.perms=false
+    restart: unless-stopped
+    networks:
+      - protecliter-network
+    depends_on:
+      - logstash
+
+  # Kibana - Log visualization
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.11.1
+    container_name: protecliter-kibana
+    ports:
+      - "5601:5601"
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+      - ELASTICSEARCH_USERNAME=kibana_system
+      - ELASTICSEARCH_PASSWORD=kibana_dev
+    restart: unless-stopped
+    networks:
+      - protecliter-network
+    depends_on:
+      - elasticsearch
+
+  # Alertmanager - Alert routing
+  alertmanager:
+    image: prom/alertmanager:v0.26.0
+    container_name: protecliter-alertmanager
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./infra/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager-data:/alertmanager
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+    restart: unless-stopped
+    networks:
+      - protecliter-network
+
+volumes:
+  prometheus-data:
+  grafana-data:
+  filebeat-data:
+  alertmanager-data:
+
+networks:
+  protecliter-network:
+    external: true
+    name: projeto_antipirataria_default

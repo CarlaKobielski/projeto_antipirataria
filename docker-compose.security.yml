@@ -1,0 +1,61 @@
+# Docker Compose for Security Stack (Vault + WAF)
+# Run with: docker-compose -f docker-compose.security.yml up -d
+
+version: '3.8'
+
+services:
+  # HashiCorp Vault - Secrets Management
+  vault:
+    image: hashicorp/vault:1.15
+    container_name: protecliter-vault
+    ports:
+      - "8200:8200"
+    volumes:
+      - ./infra/vault/vault.hcl:/vault/config/vault.hcl:ro
+      - ./infra/vault/policies:/vault/policies:ro
+      - ./infra/vault/init-vault.sh:/vault/init-vault.sh:ro
+      - vault-data:/vault/data
+    environment:
+      - VAULT_ADDR=http://0.0.0.0:8200
+      - VAULT_API_ADDR=http://0.0.0.0:8200
+    cap_add:
+      - IPC_LOCK
+    command: server
+    restart: unless-stopped
+    networks:
+      - protecliter-network
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O-", "http://localhost:8200/v1/sys/health?standbyok=true"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ModSecurity WAF with OWASP Core Rule Set
+  modsecurity:
+    image: owasp/modsecurity-crs:nginx-alpine
+    container_name: protecliter-waf
+    ports:
+      - "8080:80"
+    volumes:
+      - ./infra/waf/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./infra/waf/modsecurity.conf:/etc/modsecurity.d/modsecurity-override.conf:ro
+    environment:
+      - BACKEND=http://api-gateway:3000
+      - MODSEC_RULE_ENGINE=On
+      - PARANOIA=2
+      - ANOMALY_INBOUND=10
+      - ANOMALY_OUTBOUND=5
+      - BLOCKING_PARANOIA=2
+    restart: unless-stopped
+    networks:
+      - protecliter-network
+    depends_on:
+      - api-gateway
+
+volumes:
+  vault-data:
+
+networks:
+  protecliter-network:
+    external: true
+    name: projeto_antipirataria_default

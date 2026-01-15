@@ -1,0 +1,117 @@
+groups:
+  - name: protecliter-alerts
+    rules:
+      # Service availability
+      - alert: ServiceDown
+        expr: up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Service {{ $labels.job }} is down"
+          description: "{{ $labels.job }} has been down for more than 1 minute."
+
+      # High error rate
+      - alert: HighErrorRate
+        expr: sum(rate(http_requests_total{status=~"5.."}[5m])) by (service) / sum(rate(http_requests_total[5m])) by (service) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High error rate in {{ $labels.service }}"
+          description: "{{ $labels.service }} has error rate > 5% for 5 minutes."
+
+      - alert: CriticalErrorRate
+        expr: sum(rate(http_requests_total{status=~"5.."}[5m])) by (service) / sum(rate(http_requests_total[5m])) by (service) > 0.15
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Critical error rate in {{ $labels.service }}"
+          description: "{{ $labels.service }} has error rate > 15% for 2 minutes."
+
+      # High latency
+      - alert: HighLatency
+        expr: histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le, service)) > 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High latency in {{ $labels.service }}"
+          description: "{{ $labels.service }} p95 latency > 2s for 5 minutes."
+
+      # Queue backlog
+      - alert: QueueBacklog
+        expr: bullmq_queue_waiting > 1000
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Queue backlog in {{ $labels.queue }}"
+          description: "Queue {{ $labels.queue }} has > 1000 waiting jobs for 10 minutes."
+
+      - alert: QueueFailures
+        expr: increase(bullmq_queue_failed[1h]) > 50
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High failure rate in queue {{ $labels.queue }}"
+          description: "Queue {{ $labels.queue }} has > 50 failed jobs in the last hour."
+
+      # Database
+      - alert: PostgresConnectionsHigh
+        expr: pg_stat_activity_count > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High PostgreSQL connections"
+          description: "PostgreSQL has > 80 active connections."
+
+      - alert: PostgresReplicationLag
+        expr: pg_replication_lag > 30
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "PostgreSQL replication lag"
+          description: "PostgreSQL replication lag is > 30 seconds."
+
+      # Redis
+      - alert: RedisMemoryHigh
+        expr: redis_memory_used_bytes / redis_memory_max_bytes > 0.8
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High Redis memory usage"
+          description: "Redis memory usage > 80%."
+
+      # System resources
+      - alert: HighCPUUsage
+        expr: 100 - (avg(rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High CPU usage"
+          description: "CPU usage > 80% for 10 minutes."
+
+      - alert: HighMemoryUsage
+        expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High memory usage"
+          description: "Memory usage > 85% for 5 minutes."
+
+      - alert: DiskSpaceLow
+        expr: (node_filesystem_avail_bytes / node_filesystem_size_bytes) * 100 < 15
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Low disk space"
+          description: "Disk space < 15% available."

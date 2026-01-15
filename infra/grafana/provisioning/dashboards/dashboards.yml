@@ -1,0 +1,11 @@
+apiVersion: 1
+
+providers:
+  - name: 'ProtecLiter Dashboards'
+    orgId: 1
+    folder: 'ProtecLiter'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 10
+    options:
+      path: /etc/grafana/provisioning/dashboards

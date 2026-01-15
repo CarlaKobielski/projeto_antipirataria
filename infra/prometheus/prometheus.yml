@@ -1,0 +1,63 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ['alertmanager:9093']
+
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+scrape_configs:
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  - job_name: 'api-gateway'
+    static_configs:
+      - targets: ['api-gateway:3000']
+    metrics_path: /metrics
+
+  - job_name: 'auth-service'
+    static_configs:
+      - targets: ['auth-service:3001']
+    metrics_path: /metrics
+
+  - job_name: 'crawler-service'
+    static_configs:
+      - targets: ['crawler-service:3002']
+    metrics_path: /metrics
+
+  - job_name: 'detection-service'
+    static_configs:
+      - targets: ['detection-service:3003']
+    metrics_path: /metrics
+
+  - job_name: 'case-service'
+    static_configs:
+      - targets: ['case-service:3004']
+    metrics_path: /metrics
+
+  - job_name: 'takedown-service'
+    static_configs:
+      - targets: ['takedown-service:3005']
+    metrics_path: /metrics
+
+  - job_name: 'billing-service'
+    static_configs:
+      - targets: ['billing-service:3006']
+    metrics_path: /metrics
+
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis-exporter:9121']
+
+  - job_name: 'postgres'
+    static_configs:
+      - targets: ['postgres-exporter:9187']
+
+  - job_name: 'node-exporter'
+    static_configs:
+      - targets: ['node-exporter:9100']
