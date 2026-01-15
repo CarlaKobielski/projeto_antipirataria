@@ -107,7 +107,7 @@ services:
         sync: false # User must provide in dashboard
 
   # Frontends (Static Sites)
-  - type: static
+  - type: site
     name: backoffice-web
     env: static
     plan: free
@@ -120,7 +120,7 @@ services:
           name: api-gateway
           property: url
 
-  - type: static
+  - type: site
     name: client-portal
     env: static
     plan: free
